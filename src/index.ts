@@ -1,12 +1,16 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { resolveApiKey } from './credentials.js'
+import { registerCompletionInstruction } from './instructions.js'
 import { verifyTaskResult } from './verify.js'
 import { defaultSemanticChecks, evaluateWithTypeSafe } from './typesafe.js'
 import type { SemanticCheck, VerifyOptions } from './contracts.js'
 
 export * from './contracts.js'
 export { credentialService, resolveApiKey } from './credentials.js'
+export {
+  COMPLETION_SECTION, COMPLETION_SECTION_ORDER, completionInstruction, registerCompletionInstruction,
+} from './instructions.js'
 export { parseTaskResult, verifyTaskResult } from './verify.js'
 export { defaultSemanticChecks, evaluateWithTypeSafe } from './typesafe.js'
 
@@ -22,6 +26,11 @@ export type TypeSafeAgentDshConfig = Partial<VerifyOptions> & {
 }
 
 export function apply(ctx: Context, config: TypeSafeAgentDshConfig = {}) {
+  // Before the tool, so the instruction that tells the model to call it is in
+  // place for the same assembly. Disposal rides the calling context, like the
+  // tool registration below.
+  registerCompletionInstruction(ctx)
+
   ctx.tools.register(defineTool({
     name: 'typesafe_verify_task',
     description: 'Independently validate an agent completion claim. Use only after editing files and running configured tests. When TypeSafe is configured, it also evaluates semantic completion evidence. Returns ready=true only when every configured check passes.',
