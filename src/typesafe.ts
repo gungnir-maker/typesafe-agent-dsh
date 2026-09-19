@@ -1,7 +1,19 @@
 import type { SemanticCheck, SemanticCheckEvidence, VerificationReport } from './contracts.js'
 
 const endpoint = 'https://api.typesafe.ai/v1/systemone'
-const defaultThreshold = 0.8
+
+/**
+ * Shipped default, used by {@link defaultSemanticChecks} and by any configured
+ * check that omits its own threshold.
+ *
+ * 0.6, not the 0.8 this started at. Measured across honest completions with a
+ * green suite the score spanned 0.61-0.79, so 0.8 refused true work — the exact
+ * failure that teaches users to ignore a gate. A user who enables `typesafe`
+ * without writing out `checks` gets this number, so changing the recommendation
+ * in the README without changing this leaves the default contradicting the
+ * documentation. See "Calibrating the threshold" in the README.
+ */
+const defaultThreshold = 0.6
 
 type TypeSafeResponse = {
   answers?: Record<string, { noul?: number }>

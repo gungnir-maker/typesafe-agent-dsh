@@ -17,6 +17,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The shipped default semantic threshold is now `0.6`, matching the documented recommendation it contradicted. It was still `0.8`, so a user who enabled `typesafe` without writing out explicit `checks` received the strict value that refuses honest work — the measurement and the default disagreed, and only one of them was visible in the README. The default and the fallback for a check naming no threshold are now pinned by a test.
 - The TypeSafe key now resolves through the Harness credential service (`ctx.credentials.resolve`) before falling back to `process.env`. The service layers the writable store over `.env` files and the inherited environment, so a key entered on the Models page reaches the next `typesafe_verify_task` call with no restart. Previously only `process.env` was read, which no configuration surface can write.
 - `TYPESAFE_UNAVAILABLE` now names the unresolved reference rather than assuming the default one.
 - Declared `author`, `repository`, `homepage`, `bugs`, and `engines`. The engine range matches the Harness host's own constraint.

@@ -143,7 +143,7 @@ A truthful claim, with every deterministic check green, can still be refused by 
 }
 ```
 
-That is the gate working, not failing: the suite passed and the changed files were real, but the claim scored just under the bar. Treat the threshold as a dial rather than a constant — the documented `0.8` is deliberately strict and, measured, refuses true work. [Calibrating the threshold](#calibrating-the-threshold) has the numbers. Tests remain the hard proof; the semantic score is a confidence gate on top.
+That is the gate working, not failing: the suite passed and the changed files were real, but the claim scored just under the bar. That report is real, from a run against `0.8` — the threshold this package used to ship, and the reason it no longer does. The default is now `0.6`, in `src/typesafe.ts` as well as below; [Calibrating the threshold](#calibrating-the-threshold) has the numbers. Tests remain the hard proof; the semantic score is a confidence gate on top.
 
 Two failure modes worth knowing:
 
@@ -166,7 +166,7 @@ Measured on one deployment (DeepSeek Harness, `jev-latest`), across completions 
 
 Three things follow.
 
-- The honest band sits around **0.6–0.8**, so the documented default of `0.8` refuses true work. **0.6 is a better starting point**, and it still refuses a claim carrying no evidence at all.
+- The honest band sits around **0.6–0.8**, so the `0.8` this package originally shipped refused true work. **`0.6` is the default in `src/typesafe.ts`** — a user who enables `typesafe` without writing out `checks` gets it — and it still refuses a claim carrying no evidence at all.
 - The same task scored 0.61 and 0.70 on two runs, so a threshold *inside* the band is fragile. Leave margin.
 - Documentation changes score near the bottom on purpose. A passing suite says nothing about whether README prose is accurate, so the gate is noticing an evidence/claim mismatch rather than judging quality. Expect doc-heavy work to sit low, and configure `verificationCommands` that actually bear on the claim.
 
