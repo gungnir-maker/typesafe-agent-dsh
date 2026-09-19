@@ -22,20 +22,17 @@ Check the files. Rerun the tests. Evaluate the evidence.
 ## How it works
 
 ```mermaid
-flowchart TD
-    A[Agent submits completion claim] --> B[Validate claim and workspace changes]
-    B --> C[Rerun configured commands]
-    C --> D{Local checks pass?}
-    D -->|No| E[Return issues — ready: false]
-    D -->|Yes| F{TypeSafe AI enabled?}
-    F -->|No| G[Return report — ready: true]
-    F -->|Yes| H[Evaluate supplied task and evidence]
-    H --> I{Semantic checks pass?}
-    I -->|No or unavailable| E
-    I -->|Yes| G
+flowchart LR
+    A["Completion claim"] --> B["Local checks<br/>Files · changes · commands"]
+    B --> C["TypeSafe AI<br/>Optional evidence score"]
+    C --> D["Verification report<br/>Results · issues · digest"]
+    classDef neutral fill:#f6f8fa,stroke:#8c959f,color:#1f2328;
+    classDef accent fill:#eff6ff,stroke:#547fa8,color:#16324f;
+    class A,B,D neutral;
+    class C accent;
 ```
 
-The local checks inspect the workspace and execute commands. TypeSafe AI supplies a separate semantic score. Commands and thresholds come from plugin configuration.
+The local checks inspect the workspace and execute commands. TypeSafe AI runs only when configured and local verification passes; otherwise the report returns directly. Commands and thresholds come from plugin configuration.
 
 | Check | What it verifies |
 | :--- | :--- |
