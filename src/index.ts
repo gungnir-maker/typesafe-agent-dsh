@@ -1,10 +1,12 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { resolveApiKey } from './credentials.js'
 import { verifyTaskResult } from './verify.js'
 import { defaultSemanticChecks, evaluateWithTypeSafe } from './typesafe.js'
 import type { SemanticCheck, VerifyOptions } from './contracts.js'
 
 export * from './contracts.js'
+export { credentialService, resolveApiKey } from './credentials.js'
 export { parseTaskResult, verifyTaskResult } from './verify.js'
 export { defaultSemanticChecks, evaluateWithTypeSafe } from './typesafe.js'
 
@@ -39,10 +41,11 @@ export function apply(ctx: Context, config: TypeSafeAgentDshConfig = {}) {
       const typesafe = config.typesafe
       if (!report.ready || !typesafe) return JSON.stringify(report)
 
-      const apiKey = process.env[typesafe.apiKeyEnv ?? 'TYPESAFE_API_KEY']
-      if (!apiKey) {
+      const ref = typesafe.apiKeyEnv ?? 'TYPESAFE_API_KEY'
+      const apiKey = await resolveApiKey(ctx, ref)
+      if (apiKey === undefined) {
         report.ready = false
-        report.issues.push({ code: 'TYPESAFE_UNAVAILABLE', message: 'TypeSafe is configured but TYPESAFE_API_KEY is not available.' })
+        report.issues.push({ code: 'TYPESAFE_UNAVAILABLE', message: `TypeSafe is configured but no credential resolves for ${ref}.` })
         return JSON.stringify(report)
       }
 

@@ -5,10 +5,22 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist", "cordis.patch.yml", "README.md", "LICENSE"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": "./client/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["dist", "client", "cordis.patch.yml", "README.md", "LICENSE"],
   "dsh": {
     "bundle": {
       "patch": "cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-api-remotes"]
     }
   },
   "scripts": {

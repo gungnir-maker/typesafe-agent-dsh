@@ -44,13 +44,39 @@ Configure trusted verification commands in the profile patch. Commands are packa
               threshold: 0.8
 ```
 
-Keep the key out of this repository. Before starting DSH, set it in the same terminal:
+The key is never kept in this repository. It resolves once per call, in this order:
+
+1. **The Harness credential service** (`ctx.credentials.resolve`) — the writable store layered over `.env` files and the inherited environment.
+2. **`process.env`** — the fallback for a composition that mounts no credential provider, and for loading this package outside the Harness.
+
+`typesafe.apiKeyEnv` names the reference; it defaults to `TYPESAFE_API_KEY`.
+
+Configure `typesafe` only when a key is actually available: a configured gate with an unresolved reference forces `ready: false` on every otherwise-passing task rather than skipping the check.
+
+### Entering the key
+
+The plugin ships a browser half, so the key is entered on the **Models** settings page instead of a terminal. It registers a TypeSafe card in that page's footer extension area (`settings.models.footer`), beside the provider keys and styled like them, with a configured/missing dot.
+
+The card writes through the existing `ctx.remote.credentials` namespace — the same surface the provider key fields use — so a key stored there reaches the very next `typesafe_verify_task` call with no restart. The literal crosses the wire in one direction only: the card learns whether a key is configured, never its value.
+
+Without a browser, either export the key before launching:
 
 ```bash
 export TYPESAFE_API_KEY="your_typesafe_key"
 export DEEPSEEK_API_KEY="your_deepseek_key"
 dsh web
 ```
+
+or put it in `$DSH_HOME/.env`, which does not travel with a repository.
+
+### Browser half layout
+
+```text
+client/index.js   shipped closure-factory bundle (window.__ModuleLoader__.load)
+cordis.patch.yml  bundle layer that mounts the Host plugin row
+```
+
+`client/index.js` is the shipped artifact rather than compiled output: the Harness client-module loader consumes exactly this closure-factory form, and this package carries no client build step. React is a client baseline external; the slot service and the credentials Remote arrive through the injected context.
 
 ## Agent flow
 
@@ -83,4 +109,4 @@ npm run build
 
 ## Scope of v0.1
 
-One DSH plugin, one completion contract, file-boundary checks, and trusted command verification. Codex and Claude adapters come after this workflow is stable.
+One DSH plugin, one completion contract, file-boundary checks, trusted command verification, and a Models-page card for the optional semantic gate's key. Codex and Claude adapters come after this workflow is stable.
