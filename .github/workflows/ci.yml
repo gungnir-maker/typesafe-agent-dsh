@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: check + test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Mirrors the Harness host's own engine constraint (^22.19.0 || >=24.0.0).
+        # This plugin cannot run where the host cannot, so the host's floor is
+        # the honest floor rather than a rounder number.
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # Runs the `prepare` script, so this also proves the published entry
+      # points build from a clean checkout with no prior dist/.
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run check
+
+      # The browser half is a hand-written artifact with no build step, so
+      # nothing else in this pipeline would notice a syntax error in it.
+      - name: Parse the client bundle
+        run: node --check client/index.js
+
+      - name: Test
+        run: npm test
+
+      # Proves the tarball a consumer receives carries every entry point the
+      # manifest promises: dist/, client/, and the bundle patch.
+      - name: Pack and verify the published contents
+        run: |
+          npm pack --dry-run 2>&1 | tee pack.txt
+          for expected in dist/index.js client/index.js cordis.patch.yml; do
+            grep -q "$expected" pack.txt || { echo "missing from the tarball: $expected"; exit 1; }
+          done
