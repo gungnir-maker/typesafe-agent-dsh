@@ -1,0 +1,9 @@
+{
+  "taskId": "example-task",
+  "task": "Add email validation before creating a login session.",
+  "status": "done",
+  "summary": "Added email validation before creating a login session.",
+  "changedFiles": ["src/login.py", "tests/test_login.py"],
+  "testsClaimed": ["python3 -m unittest"],
+  "blockers": []
+}
