@@ -1,7 +1,7 @@
 import { realpath } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { posix, relative, resolve, sep } from 'node:path'
-import { changedFiles, type ChangeSet } from './changed.js'
+import { changedFiles, workspaceDigest, worktreeChanges, type ChangeSet } from './changed.js'
 import {
   DEFAULT_COMMAND_TIMEOUT_MS,
   taskResultSchema,
@@ -226,6 +226,26 @@ export async function verifyTaskResult(rawResult: string, options: VerifyOptions
     }
   }
 
+  // The change set is compared against the claim, not the other way round. A
+  // completion that names the files it wants judged and stays silent about the
+  // rest is true as far as it goes and misleading about the whole, which is
+  // exactly the shape a self-reported claim is most likely to take.
+  if (options.verifyComplete !== false && changeSet !== undefined) {
+    const whole = await worktreeChanges(root, gitOptions)
+    if (whole !== undefined) {
+      const declared = new Set<string>()
+      for (const claimed of result.data.changedFiles) {
+        const normalized = normalizeClaim(claimed)
+        if (normalized !== undefined) declared.add(normalized)
+      }
+      for (const path of [...whole.changed].sort()) {
+        if (!declared.has(path)) {
+          issues.push({ code: 'UNDECLARED_CHANGE', message: `Workspace change absent from changedFiles: ${path}` })
+        }
+      }
+    }
+  }
+
   // `ready` must mean something was actually checked. A `done` claim with no
   // changed files and no executed command satisfied every rule vacuously and
   // reported success, so the emptiness is now named rather than passing.
@@ -236,12 +256,14 @@ export async function verifyTaskResult(rawResult: string, options: VerifyOptions
     })
   }
 
+  const digest = await workspaceDigest(root, gitOptions)
   return {
     ready: result.data.status === 'done' && issues.length === 0,
     result: result.data,
     tests,
     semanticChecks: [],
     issues,
+    ...digest === undefined ? {} : { workspaceDigest: digest },
   }
 }
 

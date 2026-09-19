@@ -18,6 +18,7 @@ Each stage answers a narrower question than it looks like, and knowing which is 
 | Path policy | Is every claimed path a normalized relative path, inside the workspace, allowed prefixes, and (via `realpath`) inside them for real? | whether it is honest |
 | Existence | Does each claimed file exist, unless git reports it deleted? | whether you touched it |
 | Changed-file check | Does each claimed file differ from `HEAD`? | that the change is *yours* rather than pre-existing |
+| Completeness | Does the claim account for **every** path the tree reports as changed? | whether an undeclared change was yours or already there |
 | Command rerun | Does the configured command exit zero, now? | that it covers the task |
 | Blockers / evidence | Does a `done` claim report no blockers, and carry at least one file or executed command? | whether the evidence is *sufficient*, only that it is not empty |
 | Semantic gate | Does the evidence support the claim? | correctness |
@@ -28,10 +29,18 @@ The changed-file check runs only inside a git work tree, where the answer is kno
 
 Read this before treating a `ready: true` as proof.
 
-- **The task being judged is the agent's own description of it.** The semantic gate receives the `task` string from the completion JSON, so an agent that restates its task more narrowly can obtain a more favourable verdict. Binding verification to the requirement the *user* actually stated needs the original request captured before execution, which this plugin does not yet do.
-- **Invocation is requested, not enforced.** The prompt section tells the model to call the tool; nothing at the harness level compels it. A model that ignores the instruction produces an unverified "done" exactly as before. Until a turn-end hook exists, treat this as an **advisory verifier**, not a gate that cannot be bypassed.
-- **It reviews the files you name.** The change set is compared against the claim, not the other way round: a file the agent edits but omits from `changedFiles` is not examined.
+- **A verdict does not carry forward.** Each report names the workspace state it was taken against (`workspaceDigest`), so a later reader can tell whether the tree moved. Nothing yet *forces* re-verification after further edits — that needs the lifecycle hook below.
+- **Run it on a clean tree.** Both the changed-file check and the completeness check compare against `HEAD`, so unrelated uncommitted work reads as an undeclared change. Set `verifyComplete: false` if your workspace is routinely dirty.
 - **A passing command is not coverage.** Nothing here establishes that the configured command exercises the task at hand.
+
+## The two gaps that need the harness, not this plugin
+
+Both are properties of *how* the tool is invoked, so neither can be closed from inside it. Both are also now known to be reachable, because the Harness exposes the events they need:
+
+- **The task being judged is still the agent's own description of it.** Binding verification to the requirement the user actually stated needs that requirement captured before execution from `agent/inbox/claimed` (or `session/event` filtered on `source.kind`, which separates real user input from plugin injections), with the agent handed only a task ID. Not implemented yet.
+- **Invocation is requested, not enforced.** The prompt section asks; nothing compels. The Harness does expose `agent/turn-stopping` — a serial, awaited event fired as the turn closes — so an enforcing hook is buildable and testable. Until one exists, treat this as an **advisory verifier**.
+
+The milestone this is working toward: *a task cannot pass by changing its requirements, omitting changed files, or reusing stale evidence.* Completeness and the fingerprint are in; requirement binding is not.
 
 ## Install
 

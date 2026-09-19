@@ -15,6 +15,7 @@
  * @module typesafe-agent-dsh/changed
  */
 
+import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 
 /** Output cap for one git invocation; these listings are short. */
@@ -156,11 +157,13 @@ export async function changedFiles(
   // created and never added, and `--diff-filter=D` sees removals, whose paths
   // are legitimately absent from disk. `--relative` keeps every answer relative
   // to `root`, matching the claimed paths as written.
-  const [modified, untracked, deleted] = await Promise.all([
-    git(['diff', '--name-only', '-z', '--relative', 'HEAD', '--', ...paths], root, options),
-    git(['ls-files', '--others', '--exclude-standard', '-z', '--', ...paths], root, options),
-    git(['diff', '--name-only', '-z', '--relative', '--diff-filter=D', 'HEAD', '--', ...paths], root, options),
-  ])
+  // Sequential on purpose. These look read-only and are not: `git diff`
+  // refreshes the index and takes its lock. Run concurrently, one of them loses
+  // the race and reports failure, which the caller reads as "cannot answer" and
+  // silently skips a check — a soundness bug dressed as a performance win.
+  const modified = await git(['diff', '--name-only', '-z', '--relative', 'HEAD', '--', ...paths], root, options)
+  const untracked = await git(['ls-files', '--others', '--exclude-standard', '-z', '--', ...paths], root, options)
+  const deleted = await git(['diff', '--name-only', '-z', '--relative', '--diff-filter=D', 'HEAD', '--', ...paths], root, options)
   if (!modified.ok || !untracked.ok || !deleted.ok) return undefined
 
   const removed = new Set(split0(deleted.stdout))
@@ -168,4 +171,73 @@ export async function changedFiles(
     changed: new Set([...split0(modified.stdout), ...split0(untracked.stdout), ...removed]),
     deleted: removed,
   }
+}
+
+/**
+ * Every path the work tree reports as changed, not only the claimed ones.
+ *
+ * `changedFiles` answers "did the agent touch what it named". This answers the
+ * inverse question — "did it touch anything it did not name" — which is the
+ * only way to notice a claim that is true as far as it goes and silent about
+ * the rest.
+ * @param root - workspace root.
+ * @param options - cancellation and deadline.
+ * @returns the whole change set, or `undefined` when git cannot answer.
+ */
+export async function worktreeChanges(root: string, options: GitOptions = {}): Promise<ChangeSet | undefined> {
+  if (!await isGitWorkTree(root, options)) return undefined
+
+  const modified = await git(['diff', '--name-only', '-z', '--relative', 'HEAD'], root, options)
+  const untracked = await git(['ls-files', '--others', '--exclude-standard', '-z'], root, options)
+  const deleted = await git(['diff', '--name-only', '-z', '--relative', '--diff-filter=D', 'HEAD'], root, options)
+  if (!modified.ok || !untracked.ok || !deleted.ok) return undefined
+
+  const removed = new Set(split0(deleted.stdout))
+  return {
+    changed: new Set([...split0(modified.stdout), ...split0(untracked.stdout), ...removed]),
+    deleted: removed,
+  }
+}
+
+/**
+ * A content-sensitive fingerprint of the workspace as it stands.
+ *
+ * The point is staleness: a verdict is only meaningful for the tree it was
+ * taken against, and a report that cannot say which tree that was cannot be
+ * checked later.
+ *
+ * `git stash create` is the content-sensitive half — it writes a commit object
+ * for the current work tree and prints its hash without touching the stash list
+ * or the working tree. It ignores untracked files, so `status --porcelain` is
+ * folded in to cover their names. Combined with `HEAD`, a later reader can tell
+ * whether anything moved since.
+ * @param root - workspace root.
+ * @param options - cancellation and deadline.
+ * @returns the fingerprint, or `undefined` when git cannot answer.
+ */
+export async function workspaceDigest(root: string, options: GitOptions = {}): Promise<string | undefined> {
+  if (!await isGitWorkTree(root, options)) return undefined
+
+  // Sequential for the same reason as above, and here it is not optional:
+  // `stash create` writes a commit object, so running it alongside `status`
+  // makes them contend for the index lock. Observed directly — roughly half of
+  // concurrent attempts lost the race and produced no fingerprint at all.
+  const head = await git(['rev-parse', 'HEAD'], root, options)
+  const stashed = await git(['stash', 'create'], root, options)
+  const status = await git(['status', '--porcelain', '-z'], root, options)
+  if (!head.ok || !stashed.ok || !status.ok) return undefined
+
+  // The tree, not the stash commit. `stash create` mints a new commit every
+  // call and commit metadata carries a timestamp, so hashing the commit yields
+  // a different fingerprint for an unchanged tree — every later check would
+  // read as stale. A tree is content-addressed: identical content, identical
+  // hash, always. A clean tree produces no stash commit, so `HEAD`'s tree
+  // stands in.
+  const stashRef = stashed.stdout.trim()
+  const tree = await git(['rev-parse', `${stashRef.length > 0 ? stashRef : 'HEAD'}^{tree}`], root, options)
+  if (!tree.ok) return undefined
+
+  return createHash('sha256')
+    .update([head.stdout.trim(), tree.stdout.trim(), status.stdout].join('\0'))
+    .digest('hex')
 }

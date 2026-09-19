@@ -20,6 +20,7 @@ export type VerificationIssue = {
     | 'PATH_OUTSIDE_WORKSPACE'
     | 'MISSING_FILE'
     | 'FILE_NOT_CHANGED'
+    | 'UNDECLARED_CHANGE'
     | 'BLOCKERS_REPORTED'
     | 'NO_EVIDENCE'
     | 'TEST_FAILED'
@@ -45,6 +46,15 @@ export type VerificationReport = {
   tests: TestEvidence[]
   semanticChecks: SemanticCheckEvidence[]
   issues: VerificationIssue[]
+  /**
+   * Fingerprint of the work tree this verdict was taken against, when the
+   * workspace is a git work tree.
+   *
+   * A verdict is only meaningful for the tree it describes. Without this, a
+   * result cannot be checked later for staleness — the reader has no way to
+   * tell whether the code moved after it was verified.
+   */
+  workspaceDigest?: string
 }
 
 export type VerifyOptions = {
@@ -64,6 +74,13 @@ export type VerifyOptions = {
    * elsewhere the check is skipped rather than guessed.
    */
   verifyChanges?: boolean
+  /**
+   * Whether the claim must account for the whole change set. Defaults to true:
+   * a completion that names some of its changes and omits the rest is checked
+   * against the tree, not against its own summary. Applies only inside a git
+   * work tree,
+   */
+  verifyComplete?: boolean
   /**
    * Caller cancellation. Forwarded to every verification command, whose whole
    * process group is killed when it aborts, so cancelling the tool call ends

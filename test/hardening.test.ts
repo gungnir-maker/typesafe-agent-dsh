@@ -153,3 +153,73 @@ test('accepts a score inside the unit interval', async () => {
   })
   assert.deepEqual(checks, [{ id: 'c', score: 0.75, threshold: 0.6, passed: true }])
 })
+
+test('refuses a claim that omits a file the workspace reports as changed', async () => {
+  const repo = await repoFixture()
+  await writeFile(join(repo, 'src', 'real.ts'), 'export const a = 2\n')
+  // Changed, and deliberately left out of the claim: true as far as it goes,
+  // misleading about the whole.
+  await writeFile(join(repo, 'src', 'hidden.ts'), 'export {}\n')
+
+  const report = await verifyTaskResult(claim(), { workspaceRoot: repo })
+  assert.equal(report.ready, false)
+  assert.ok(
+    report.issues.some(issue => issue.code === 'UNDECLARED_CHANGE' && issue.message.includes('hidden.ts')),
+    'the omission must be named',
+  )
+})
+
+test('accepts a claim that accounts for every changed file', async () => {
+  const repo = await repoFixture()
+  await writeFile(join(repo, 'src', 'real.ts'), 'export const a = 2\n')
+  const report = await verifyTaskResult(claim(), { workspaceRoot: repo })
+  assert.deepEqual(report.issues, [])
+  assert.equal(report.ready, true)
+})
+
+test('can be told to tolerate undeclared changes', async () => {
+  const repo = await repoFixture()
+  await writeFile(join(repo, 'src', 'real.ts'), 'export const a = 2\n')
+  await writeFile(join(repo, 'src', 'hidden.ts'), 'export {}\n')
+
+  const report = await verifyTaskResult(claim(), { workspaceRoot: repo, verifyComplete: false })
+  assert.deepEqual(report.issues, [])
+})
+
+test('binds the verdict to a fingerprint that moves when the tree does', async () => {
+  const repo = await repoFixture()
+  await writeFile(join(repo, 'src', 'real.ts'), 'export const a = 2\n')
+  const first = await verifyTaskResult(claim(), { workspaceRoot: repo })
+  assert.equal(typeof first.workspaceDigest, 'string')
+
+  // A verdict is only meaningful for the tree it was taken against, so a later
+  // edit must produce a different fingerprint — otherwise a stale pass is
+  // indistinguishable from a fresh one.
+  await writeFile(join(repo, 'src', 'real.ts'), 'export const a = 3\n')
+  const second = await verifyTaskResult(claim(), { workspaceRoot: repo })
+  assert.notEqual(first.workspaceDigest, second.workspaceDigest)
+})
+
+test('records no fingerprint outside a work tree', async () => {
+  const plain = await mkdtemp(join(tmpdir(), 'typesafe-nodigest-'))
+  await writeFile(join(plain, 'real.ts'), 'export {}\n')
+  const report = await verifyTaskResult(claim({ changedFiles: ['real.ts'] }), { workspaceRoot: plain })
+  assert.equal(report.workspaceDigest, undefined)
+})
+
+test('the fingerprint is stable while the tree is', async () => {
+  const repo = await repoFixture()
+  await writeFile(join(repo, 'src', 'real.ts'), 'export const a = 2\n')
+
+  // Two failure modes were observed here and both defeat staleness detection:
+  // hashing `git stash create`'s commit, which carries a timestamp and so
+  // changed on every call, and running the git invocations concurrently, which
+  // lost the index-lock race and produced no fingerprint at all. A digest that
+  // varies or vanishes cannot distinguish a stale pass from a fresh one.
+  const digests: Array<string | undefined> = []
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    digests.push((await verifyTaskResult(claim(), { workspaceRoot: repo })).workspaceDigest)
+  }
+  assert.equal(new Set(digests).size, 1, 'an unchanged tree must yield one fingerprint')
+  assert.notEqual(digests[0], undefined)
+})
