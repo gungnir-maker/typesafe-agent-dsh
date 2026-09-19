@@ -99,6 +99,30 @@ Example completion JSON:
 }
 ```
 
+## What a report looks like
+
+A truthful claim, with every deterministic check green, can still be refused by the semantic gate. `ready` is the conjunction of all of them:
+
+```json
+{
+  "ready": false,
+  "tests": [{ "command": "npm test", "passed": true, "output": "…ok 9/9…" }],
+  "semanticChecks": [
+    { "id": "completion_is_supported", "score": 0.79, "threshold": 0.8, "passed": false }
+  ],
+  "issues": [
+    { "code": "SEMANTIC_CHECK_FAILED", "message": "TypeSafe check failed: completion_is_supported (0.79 < 0.8)." }
+  ]
+}
+```
+
+That is the gate working, not failing: the suite passed and the changed files were real, but the claim scored just under the bar. Treat the threshold as a dial rather than a constant — `0.8` is deliberately strict, and a team that sees honest work refused should lower it (or keep `0.8` and reserve `status: "needs_review"` for uncertain work). Tests remain the hard proof; the semantic score is a confidence gate on top.
+
+Two failure modes worth knowing:
+
+- `typesafe` configured but no key resolving fails **every** otherwise-passing task with `TYPESAFE_UNAVAILABLE`, rather than skipping the check. Configure the gate only once a key is available.
+- `verificationCommands` are package configuration, never model input, and the agent cannot ask for a command the config does not list — an unclaimed command is reported as `TEST_NOT_DECLARED`.
+
 ## Commands
 
 ```bash
