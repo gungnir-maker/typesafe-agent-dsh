@@ -20,10 +20,13 @@ export type VerificationIssue = {
     | 'PATH_OUTSIDE_WORKSPACE'
     | 'MISSING_FILE'
     | 'FILE_NOT_CHANGED'
+    | 'BLOCKERS_REPORTED'
+    | 'NO_EVIDENCE'
     | 'TEST_FAILED'
     | 'TEST_TIMED_OUT'
     | 'TEST_NOT_DECLARED'
     | 'TYPESAFE_UNAVAILABLE'
+    | 'SEMANTIC_RESPONSE_INVALID'
     | 'SEMANTIC_CHECK_FAILED'
   message: string
 }

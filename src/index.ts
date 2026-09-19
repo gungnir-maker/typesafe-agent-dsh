@@ -3,7 +3,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { resolveApiKey } from './credentials.js'
 import { registerCompletionInstruction } from './instructions.js'
 import { verifyTaskResult } from './verify.js'
-import { defaultSemanticChecks, evaluateWithTypeSafe } from './typesafe.js'
+import { defaultSemanticChecks, evaluateWithTypeSafe, SemanticResponseError } from './typesafe.js'
 import { DEFAULT_COMMAND_TIMEOUT_MS } from './contracts.js'
 import type { SemanticCheck, VerifyOptions } from './contracts.js'
 
@@ -66,7 +66,20 @@ export function apply(ctx: Context, config: TypeSafeAgentDshConfig = {}) {
       if (!report.ready || !typesafe) return JSON.stringify(report)
 
       const ref = typesafe.apiKeyEnv ?? 'TYPESAFE_API_KEY'
-      const apiKey = await resolveApiKey(ctx, ref)
+      // The credential service can throw — a provider whose backing store is
+      // unreadable, say — and this call previously sat outside the handler
+      // below, so such a failure escaped the tool instead of being reported.
+      let apiKey: string | undefined
+      try {
+        apiKey = await resolveApiKey(ctx, ref)
+      } catch (error) {
+        report.ready = false
+        report.issues.push({
+          code: 'TYPESAFE_UNAVAILABLE',
+          message: `Resolving ${ref} failed: ${error instanceof Error ? error.message : String(error)}`,
+        })
+        return JSON.stringify(report)
+      }
       if (apiKey === undefined) {
         report.ready = false
         report.issues.push({ code: 'TYPESAFE_UNAVAILABLE', message: `TypeSafe is configured but no credential resolves for ${ref}.` })
@@ -77,6 +90,8 @@ export function apply(ctx: Context, config: TypeSafeAgentDshConfig = {}) {
         report.semanticChecks = await evaluateWithTypeSafe(report, typesafe.checks ?? defaultSemanticChecks, {
           apiKey,
           model: typesafe.model,
+          ...exec?.signal === undefined ? {} : { signal: exec.signal },
+          timeoutMs: config.commandTimeoutMs,
         })
         for (const check of report.semanticChecks.filter((item) => !item.passed)) {
           report.issues.push({ code: 'SEMANTIC_CHECK_FAILED', message: `TypeSafe check failed: ${check.id} (${check.score} < ${check.threshold}).` })
@@ -84,7 +99,12 @@ export function apply(ctx: Context, config: TypeSafeAgentDshConfig = {}) {
         report.ready = report.issues.length === 0
       } catch (error) {
         report.ready = false
-        report.issues.push({ code: 'TYPESAFE_UNAVAILABLE', message: error instanceof Error ? error.message : 'TypeSafe evaluation failed.' })
+        // A response that arrived but cannot be trusted is not the same failure
+        // as an unreachable service, and re-sending it unchanged will not help.
+        report.issues.push({
+          code: error instanceof SemanticResponseError ? 'SEMANTIC_RESPONSE_INVALID' : 'TYPESAFE_UNAVAILABLE',
+          message: error instanceof Error ? error.message : 'TypeSafe evaluation failed.',
+        })
       }
 
       return JSON.stringify(report)

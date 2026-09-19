@@ -24,6 +24,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A false completion returned `ready: true`. The blockers field was parsed and then never read, so `{"status":"done","blockers":["Still broken"]}` passed; and a claim with no changed files and no executed command satisfied every rule vacuously. Now reported as `BLOCKERS_REPORTED` and `NO_EVIDENCE`.
+- The allowed-prefix policy was bypassable. `src/../outside.txt` starts with `src/`, so an unnarrowed prefix test accepted a path that resolves outside the allowed area, and a symlink inside the workspace pointing outside it passed both the lexical and the existence test. Claims are now normalized before comparison, refused when absolute or still holding a `..`, and checked against `realpath`.
+- A legitimate deletion failed verification: the removed file does not exist, so the existence check rejected a real change. Git's deletion set is now consulted, and a removed path is accepted as a change instead of a missing file.
+- A malformed semantic response was scored as a pass. Nothing validated the range, so a Noul value of `9` cleared every threshold. Scores must now be finite and inside `[0, 1]`, reported as `SEMANTIC_RESPONSE_INVALID` rather than laundered into a verdict.
+- A credential-service exception escaped the tool: `resolveApiKey` was called outside the handler around the semantic gate, so a provider whose backing store was unreadable produced an unhandled throw instead of a report. Both TypeSafe and the git checks are now bounded by a deadline and honour caller cancellation.
 - A verification command that never returned wedged the tool call indefinitely. Nothing bounded it, the tool declared no `timeoutMs`, and `execute` never took `exec`, so the caller's cancellation was not even observed. Commands are now bounded, killed by process group on expiry or abort, and reported as `TEST_TIMED_OUT`.
 - A git-hosted install loaded nothing: `dist/` is gitignored while `main` and `exports` resolve into it, and a clone has no build output. A `prepare` script now builds on install. pnpm additionally requires the build to be allowlisted.
 - The MIT notice shipped as a bare `Copyright (c) 2026`, naming no licensor; it now names the holder.

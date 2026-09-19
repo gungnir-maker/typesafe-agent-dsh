@@ -15,13 +15,23 @@ Each stage answers a narrower question than it looks like, and knowing which is 
 | Check | The question it answers | What it does *not* answer |
 |---|---|---|
 | Typed validation | Is the completion a well-formed claim? | whether it is true |
-| Path policy | Is every claimed file inside the workspace and allowed prefixes? | whether it exists |
-| Existence | Does each claimed file exist? | whether you touched it |
+| Path policy | Is every claimed path a normalized relative path, inside the workspace, allowed prefixes, and (via `realpath`) inside them for real? | whether it is honest |
+| Existence | Does each claimed file exist, unless git reports it deleted? | whether you touched it |
 | Changed-file check | Does each claimed file differ from `HEAD`? | that the change is *yours* rather than pre-existing |
 | Command rerun | Does the configured command exit zero, now? | that it covers the task |
+| Blockers / evidence | Does a `done` claim report no blockers, and carry at least one file or executed command? | whether the evidence is *sufficient*, only that it is not empty |
 | Semantic gate | Does the evidence support the claim? | correctness |
 
 The changed-file check runs only inside a git work tree, where the answer is knowable. Elsewhere it is skipped rather than guessed, because a false refusal is worse than no check.
+
+## What it still does not establish
+
+Read this before treating a `ready: true` as proof.
+
+- **The task being judged is the agent's own description of it.** The semantic gate receives the `task` string from the completion JSON, so an agent that restates its task more narrowly can obtain a more favourable verdict. Binding verification to the requirement the *user* actually stated needs the original request captured before execution, which this plugin does not yet do.
+- **Invocation is requested, not enforced.** The prompt section tells the model to call the tool; nothing at the harness level compels it. A model that ignores the instruction produces an unverified "done" exactly as before. Until a turn-end hook exists, treat this as an **advisory verifier**, not a gate that cannot be bypassed.
+- **It reviews the files you name.** The change set is compared against the claim, not the other way round: a file the agent edits but omits from `changedFiles` is not examined.
+- **A passing command is not coverage.** Nothing here establishes that the configured command exercises the task at hand.
 
 ## Install
 

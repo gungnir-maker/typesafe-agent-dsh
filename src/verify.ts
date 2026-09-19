@@ -1,7 +1,7 @@
-import { access } from 'node:fs/promises'
+import { realpath } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
-import { relative, resolve, sep } from 'node:path'
-import { changedFiles } from './changed.js'
+import { posix, relative, resolve, sep } from 'node:path'
+import { changedFiles, type ChangeSet } from './changed.js'
 import {
   DEFAULT_COMMAND_TIMEOUT_MS,
   taskResultSchema,
@@ -23,13 +23,26 @@ function isAllowed(path: string, prefixes: string[]): boolean {
   return prefixes.length === 0 || prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))
 }
 
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await access(path)
-    return true
-  } catch {
-    return false
+/**
+ * Reduce a claimed path to the form the policy is written against.
+ *
+ * A claim is attacker-controlled input, so it is normalized *before* it is
+ * compared to anything. `src/../outside.txt` is not a path under `src`, but it
+ * starts with `src/`, so an unnarrowed prefix test accepts it while the
+ * resolved file sits outside the allowed area. Normalizing first collapses the
+ * traversal; anything that survives with a leading `..`, or that names an
+ * absolute path, is refused outright.
+ * @param claimed - the path as the agent wrote it.
+ * @returns the normalized relative path, or `undefined` when it is not one.
+ */
+function normalizeClaim(claimed: string): string | undefined {
+  const slashed = claimed.split(sep).join('/')
+  if (slashed.startsWith('/') || /^[A-Za-z]:/.test(slashed)) return undefined
+  const normalized = posix.normalize(slashed)
+  if (normalized === '.' || normalized === '..' || normalized.startsWith('../') || normalized.includes('/../')) {
+    return undefined
   }
+  return normalized
 }
 
 /** Bound one verification command's execution. */
@@ -72,7 +85,6 @@ function runCommand(command: string, cwd: string, limits: CommandLimits): Promis
 
     const child = spawn('/bin/sh', ['-lc', command], {
       cwd,
-      // Own process group: the only handle that reaches grandchildren.
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -138,32 +150,63 @@ export async function verifyTaskResult(rawResult: string, options: VerifyOptions
     }
   }
 
+  // A `done` claim that reports its own blockers is not done. The field was
+  // parsed and then never read, so `{"status":"done","blockers":["Still
+  // broken"]}` returned ready.
+  if (result.data.status === 'done' && result.data.blockers.length > 0) {
+    issues.push({
+      code: 'BLOCKERS_REPORTED',
+      message: `A done claim reports unresolved blockers: ${result.data.blockers.join('; ')}`,
+    })
+  }
+
   const root = resolve(options.workspaceRoot)
   const prefixes = options.allowedPathPrefixes ?? []
+  const gitOptions = {
+    ...options.signal === undefined ? {} : { signal: options.signal },
+    ...options.commandTimeoutMs === undefined ? {} : { timeoutMs: options.commandTimeoutMs },
+  }
 
-  // Resolved once, before the per-file loop: one git invocation answers for
-  // every claim, and `undefined` means the question is unanswerable here — not
-  // that nothing changed.
-  const changed = options.verifyChanges === false
+  // Resolved once, before the per-file loop: one git run answers for every
+  // claim, and `undefined` means the question is unanswerable here — not that
+  // nothing changed.
+  const changeSet: ChangeSet | undefined = options.verifyChanges === false
     ? undefined
-    : await changedFiles(root, result.data.changedFiles)
+    : await changedFiles(root, result.data.changedFiles, gitOptions)
+  // Symlinks are followed, so containment is judged on the real path. Without
+  // this, a symlink inside the workspace pointing outside it passes both the
+  // lexical workspace test and the existence test.
+  const realRoot = await realpath(root).catch(() => root)
 
-  for (const changedFile of result.data.changedFiles) {
+  for (const claimed of result.data.changedFiles) {
+    const changedFile = normalizeClaim(claimed)
+    if (changedFile === undefined) {
+      issues.push({ code: 'PATH_OUTSIDE_WORKSPACE', message: `Changed file is not a relative path inside the workspace: ${claimed}` })
+      continue
+    }
     const fullPath = resolve(root, changedFile)
     if (!isInside(root, fullPath)) {
-      issues.push({ code: 'PATH_OUTSIDE_WORKSPACE', message: `Changed file is outside workspace: ${changedFile}` })
+      issues.push({ code: 'PATH_OUTSIDE_WORKSPACE', message: `Changed file is outside workspace: ${claimed}` })
       continue
     }
     if (!isAllowed(changedFile, prefixes)) {
-      issues.push({ code: 'PATH_OUTSIDE_WORKSPACE', message: `Changed file is outside allowed paths: ${changedFile}` })
+      issues.push({ code: 'PATH_OUTSIDE_WORKSPACE', message: `Changed file is outside allowed paths: ${claimed}` })
       continue
     }
-    if (!await fileExists(fullPath)) {
-      issues.push({ code: 'MISSING_FILE', message: `Changed file does not exist: ${changedFile}` })
+
+    const realFilePath = await realpath(fullPath).catch(() => undefined)
+    // A deletion is a real change whose file is legitimately gone, so a missing
+    // path is only a defect when the tree does not account for it.
+    const deleted = changeSet?.deleted.has(changedFile) === true
+    if (realFilePath === undefined) {
+      if (!deleted) issues.push({ code: 'MISSING_FILE', message: `Changed file does not exist: ${claimed}` })
+    } else if (!isInside(realRoot, realFilePath)) {
+      issues.push({ code: 'PATH_OUTSIDE_WORKSPACE', message: `Changed file resolves outside the workspace: ${claimed}` })
       continue
     }
-    if (changed !== undefined && !changed.has(changedFile)) {
-      issues.push({ code: 'FILE_NOT_CHANGED', message: `Changed file is unmodified relative to HEAD: ${changedFile}` })
+
+    if (changeSet !== undefined && !changeSet.changed.has(changedFile)) {
+      issues.push({ code: 'FILE_NOT_CHANGED', message: `Changed file is unmodified relative to HEAD: ${claimed}` })
     }
   }
 
@@ -181,6 +224,16 @@ export async function verifyTaskResult(rawResult: string, options: VerifyOptions
     } else if (!evidence.passed) {
       issues.push({ code: 'TEST_FAILED', message: `Required test failed: ${command}` })
     }
+  }
+
+  // `ready` must mean something was actually checked. A `done` claim with no
+  // changed files and no executed command satisfied every rule vacuously and
+  // reported success, so the emptiness is now named rather than passing.
+  if (result.data.status === 'done' && result.data.changedFiles.length === 0 && tests.length === 0) {
+    issues.push({
+      code: 'NO_EVIDENCE',
+      message: 'A done claim carries no changed files and no executed verification command, so nothing was verified.',
+    })
   }
 
   return {

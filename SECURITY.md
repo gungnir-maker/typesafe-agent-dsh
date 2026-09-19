@@ -11,10 +11,10 @@ The plugin treats its **configuration as the trust boundary**. `verificationComm
 | Capability | Bounded by |
 |---|---|
 | Run shell commands | Only the exact strings in `verificationCommands`, each executed as `/bin/sh -lc <command>` in its own process group, with the working directory set to `workspaceRoot`, and killed when it exceeds `commandTimeoutMs` |
-| Inspect claimed files | Inside `workspaceRoot` and the listed `allowedPathPrefixes`, and — inside a git work tree — confirmed to differ from `HEAD` |
-| Invoke git | `rev-parse`, `diff --name-only`, and `ls-files --others`, in `workspaceRoot`, to answer whether a claimed file actually changed |
+| Inspect claimed files | Every claim is normalized before it is compared to anything — `src/../outside.txt` is not under `src` — refused if it is absolute or still holds a `..`, and resolved through `realpath`, so a symlink pointing out of the workspace is caught rather than followed. Inside a git work tree it must also differ from `HEAD` |
+| Invoke git | `rev-parse`, `diff --name-only`, and `ls-files --others`, in `workspaceRoot`, each bounded by a deadline and killed by process group on expiry or cancellation, to answer whether a claimed file actually changed |
 | Resolve one credential | Only the reference named by `typesafe.apiKeyEnv` (default `TYPESAFE_API_KEY`) |
-| Send evidence to TypeSafe AI | Only when the `typesafe` gate is configured |
+| Send evidence to TypeSafe AI | Only when the `typesafe` gate is configured, within a bounded request that honours caller cancellation |
 
 ## What the plugin cannot do
 
