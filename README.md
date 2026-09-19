@@ -1,14 +1,27 @@
 # TypeSafe Agent for DeepSeek Harness
 
-`typesafe-agent-dsh` stops an agent from declaring success with prose alone. It validates a typed completion result, checks claimed files stay inside the workspace, independently reruns trusted verification commands, and can ask TypeSafe AI whether the completion claim is semantically supported by its evidence.
+`typesafe-agent-dsh` stops an agent from declaring success with prose alone. It validates a typed completion result, checks claimed files stay inside the workspace **and were actually touched**, independently reruns trusted verification commands under a time bound, and can ask TypeSafe AI whether the completion claim is semantically supported by its evidence.
 
 ## What it proves
 
 ```text
-agent claim → typed JSON validation → file policy → configured tests → TypeSafe semantic gate → ready / needs review
+agent claim → typed JSON validation → path policy → changed-file check → bounded command rerun → TypeSafe semantic gate → ready / needs review
 ```
 
 `ready: true` means all configured checks passed. Tests remain the hard proof. TypeSafe adds a semantic confidence gate; it does not replace deterministic verification.
+
+Each stage answers a narrower question than it looks like, and knowing which is which is the difference between trusting this and over-trusting it:
+
+| Check | The question it answers | What it does *not* answer |
+|---|---|---|
+| Typed validation | Is the completion a well-formed claim? | whether it is true |
+| Path policy | Is every claimed file inside the workspace and allowed prefixes? | whether it exists |
+| Existence | Does each claimed file exist? | whether you touched it |
+| Changed-file check | Does each claimed file differ from `HEAD`? | that the change is *yours* rather than pre-existing |
+| Command rerun | Does the configured command exit zero, now? | that it covers the task |
+| Semantic gate | Does the evidence support the claim? | correctness |
+
+The changed-file check runs only inside a git work tree, where the answer is knowable. Elsewhere it is skipped rather than guessed, because a false refusal is worse than no check.
 
 ## Install
 
@@ -35,13 +48,19 @@ Configure trusted verification commands in the profile patch. Commands are packa
         workspaceRoot: /absolute/path/to/project
         allowedPathPrefixes: [src, test]
         verificationCommands: [npm test]
+        # Wall-clock bound for one command; it is killed on expiry and reported
+        # as TEST_TIMED_OUT. Defaults to 300000 (five minutes).
+        commandTimeoutMs: 300000
+        # Require each claimed file to differ from HEAD, inside a git work tree.
+        # Defaults to true; set false to check existence only.
+        verifyChanges: true
         typesafe:
           apiKeyEnv: TYPESAFE_API_KEY
           model: jev-latest
           checks:
             - id: completion_is_supported
               instructions: Based only on the task and evidence, is the completion claim supported well enough to hand off?
-              threshold: 0.8
+              threshold: 0.6
 ```
 
 The key is never kept in this repository. It resolves once per call, in this order:
