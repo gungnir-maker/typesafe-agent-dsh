@@ -26,10 +26,23 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc --noEmit",
+    "prepare": "npm run build",
     "test": "tsx --test test/*.test.ts"
   },
   "keywords": ["deepseek-harness", "dsh-plugin", "ai-agents", "type-safe", "verification"],
   "license": "MIT",
+  "author": "Adithyan Ashok (gungnir-maker)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gungnir-maker/typesafe-agent-dsh.git"
+  },
+  "homepage": "https://github.com/gungnir-maker/typesafe-agent-dsh#readme",
+  "bugs": {
+    "url": "https://github.com/gungnir-maker/typesafe-agent-dsh/issues"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-tools": "^0.0.1-rc.1"
