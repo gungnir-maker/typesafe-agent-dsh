@@ -51,7 +51,7 @@ export async function verifyTaskResult(rawResult: string, options: VerifyOptions
   try {
     parsed = JSON.parse(rawResult)
   } catch {
-    return { ready: false, tests: [], issues: [{ code: 'INVALID_RESULT', message: 'Result is not valid JSON.' }] }
+    return { ready: false, tests: [], semanticChecks: [], issues: [{ code: 'INVALID_RESULT', message: 'Result is not valid JSON.' }] }
   }
 
   const result = taskResultSchema.safeParse(parsed)
@@ -59,6 +59,7 @@ export async function verifyTaskResult(rawResult: string, options: VerifyOptions
     return {
       ready: false,
       tests: [],
+      semanticChecks: [],
       issues: [{ code: 'INVALID_RESULT', message: result.error.issues.map((issue) => issue.message).join('; ') }],
     }
   }
@@ -93,6 +94,7 @@ export async function verifyTaskResult(rawResult: string, options: VerifyOptions
     ready: result.data.status === 'done' && issues.length === 0,
     result: result.data,
     tests,
+    semanticChecks: [],
     issues,
   }
 }

@@ -7,6 +7,7 @@ import { verifyTaskResult } from '../src/verify.js'
 
 const result = (overrides: Record<string, unknown> = {}) => JSON.stringify({
   taskId: 'fix-login',
+  task: 'Fix login validation and prove the tests pass.',
   status: 'done',
   summary: 'Fixed login validation.',
   changedFiles: ['src/login.ts'],

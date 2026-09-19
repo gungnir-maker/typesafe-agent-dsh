@@ -1,14 +1,14 @@
 # TypeSafe Agent for DeepSeek Harness
 
-`typesafe-agent-dsh` stops an agent from declaring success with prose alone. It validates a typed completion result, checks claimed files stay inside the workspace, and independently reruns trusted verification commands.
+`typesafe-agent-dsh` stops an agent from declaring success with prose alone. It validates a typed completion result, checks claimed files stay inside the workspace, independently reruns trusted verification commands, and can ask TypeSafe AI whether the completion claim is semantically supported by its evidence.
 
 ## What it proves
 
 ```text
-agent claim → typed JSON validation → file policy → configured tests → ready / needs review
+agent claim → typed JSON validation → file policy → configured tests → TypeSafe semantic gate → ready / needs review
 ```
 
-`ready: true` means all configured checks passed. It does not prove an arbitrary natural-language request was fully satisfied.
+`ready: true` means all configured checks passed. Tests remain the hard proof. TypeSafe adds a semantic confidence gate; it does not replace deterministic verification.
 
 ## Install
 
@@ -35,6 +35,21 @@ Configure trusted verification commands in the profile patch. Commands are packa
         workspaceRoot: /absolute/path/to/project
         allowedPathPrefixes: [src, test]
         verificationCommands: [npm test]
+        typesafe:
+          apiKeyEnv: TYPESAFE_API_KEY
+          model: jev-latest
+          checks:
+            - id: completion_is_supported
+              instructions: Based only on the task and evidence, is the completion claim supported well enough to hand off?
+              threshold: 0.8
+```
+
+Keep the key out of this repository. Before starting DSH, set it in the same terminal:
+
+```bash
+export TYPESAFE_API_KEY="your_typesafe_key"
+export DEEPSEEK_API_KEY="your_deepseek_key"
+dsh web
 ```
 
 ## Agent flow
@@ -49,6 +64,7 @@ Example completion JSON:
 ```json
 {
   "taskId": "fix-login-validation",
+  "task": "Add email validation before creating a login session and prove the test suite passes.",
   "status": "done",
   "summary": "Added email validation before creating a login session.",
   "changedFiles": ["src/login.ts", "test/login.test.ts"],

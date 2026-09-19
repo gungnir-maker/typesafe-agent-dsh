@@ -1,5 +1,6 @@
 {
   "taskId": "fix-login-validation",
+  "task": "Add email validation before creating a login session and prove the test suite passes.",
   "status": "done",
   "summary": "Added email validation before creating a login session.",
   "changedFiles": ["src/login.ts", "test/login.test.ts"],
