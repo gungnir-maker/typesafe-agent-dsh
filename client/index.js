@@ -272,7 +272,13 @@ window.__ModuleLoader__.load({
     }
 
     exports.apply = apply
-    exports.inject = ['slots', 'remote.credentials']
+    // `remote` is required alongside its namespace. The `remote` service is what
+    // puts the object on the context; `remote.credentials` only waits for that
+    // namespace to be ready. Listing the namespace alone leaves ctx.remote
+    // undefined, and the first read throws inside the render boundary — which
+    // retires this entry from its cell for good instead of reporting a missing
+    // card. Shipped consumers list both, e.g. ['remote', 'remote.workspace'].
+    exports.inject = ['slots', 'remote', 'remote.credentials']
     return module.exports
   },
 })
