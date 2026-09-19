@@ -24,6 +24,11 @@ test('accepts a valid result with a passing configured test', async () => {
   const report = await verifyTaskResult(result({ changedFiles: ['login.ts'] }), {
     workspaceRoot: workspace,
     verificationCommands: ['node --test'],
+    // This fixture is not a git work tree, and the change checks now fail
+    // closed rather than skipping there. Waived explicitly so this test stays
+    // about the command rerun; `test/verify-limits.test.ts` covers the
+    // fail-closed path itself.
+    verifyChanges: false,
   })
 
   assert.equal(report.ready, true)

@@ -21,6 +21,7 @@ export type VerificationIssue = {
     | 'MISSING_FILE'
     | 'FILE_NOT_CHANGED'
     | 'UNDECLARED_CHANGE'
+    | 'UNVERIFIED'
     | 'BLOCKERS_REPORTED'
     | 'NO_EVIDENCE'
     | 'TEST_FAILED'

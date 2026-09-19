@@ -19,11 +19,12 @@ Each stage answers a narrower question than it looks like, and knowing which is 
 | Existence | Does each claimed file exist, unless git reports it deleted? | whether you touched it |
 | Changed-file check | Does each claimed file differ from `HEAD`? | that the change is *yours* rather than pre-existing |
 | Completeness | Does the claim account for **every** path the tree reports as changed? | whether an undeclared change was yours or already there |
+| Collection | Did git actually answer? A missing answer is `UNVERIFIED`, never a pass | — |
 | Command rerun | Does the configured command exit zero, now? | that it covers the task |
 | Blockers / evidence | Does a `done` claim report no blockers, and carry at least one file or executed command? | whether the evidence is *sufficient*, only that it is not empty |
 | Semantic gate | Does the evidence support the claim? | correctness |
 
-The changed-file check runs only inside a git work tree, where the answer is knowable. Elsewhere it is skipped rather than guessed, because a false refusal is worse than no check.
+The change checks fail **closed**. If git cannot answer — not a work tree, no commits yet, git unavailable, or more untracked files than can be hashed — the report says `UNVERIFIED` rather than quietly skipping. An earlier revision skipped instead, on the reasoning that a false refusal is worse than no check; that was backwards, because it let `ready` be earned in a tree where nothing had been checked. `verifyChanges: false` is the explicit waiver.
 
 ## What it still does not establish
 

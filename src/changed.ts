@@ -24,6 +24,16 @@ const outputLimit = 1_000_000
 /** Wall-clock bound for one git invocation. */
 const defaultGitTimeoutMs = 10_000
 
+/**
+ * Ceiling on untracked files whose contents are folded into the fingerprint.
+ *
+ * Chosen so the path list stays inside argv limits. Beyond it the fingerprint
+ * would silently degrade to names-only, which is precisely the failure this
+ * plugin exists to catch, so the digest reports "cannot answer" instead and the
+ * caller fails closed.
+ */
+const untrackedHashLimit = 1_000
+
 /** One git invocation's outcome. */
 type GitResult = { ok: true; stdout: string } | { ok: false }
 
@@ -237,7 +247,21 @@ export async function workspaceDigest(root: string, options: GitOptions = {}): P
   const tree = await git(['rev-parse', `${stashRef.length > 0 ? stashRef : 'HEAD'}^{tree}`], root, options)
   if (!tree.ok) return undefined
 
+  // A stash tree covers tracked files only, so two different untracked files
+  // would otherwise fingerprint identically. Their names arrive with `status`;
+  // their contents have to be hashed separately.
+  const untracked = split0(status.stdout)
+    .filter((entry) => entry.startsWith('?? '))
+    .map((entry) => entry.slice(3))
+  if (untracked.length > untrackedHashLimit) return undefined
+  let untrackedDigest = ''
+  if (untracked.length > 0) {
+    const hashed = await git(['hash-object', '--', ...untracked], root, options)
+    if (!hashed.ok) return undefined
+    untrackedDigest = hashed.stdout
+  }
+
   return createHash('sha256')
-    .update([head.stdout.trim(), tree.stdout.trim(), status.stdout].join('\0'))
+    .update([head.stdout.trim(), tree.stdout.trim(), status.stdout, untrackedDigest].join('\0'))
     .digest('hex')
 }

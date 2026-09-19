@@ -200,11 +200,34 @@ test('binds the verdict to a fingerprint that moves when the tree does', async (
   assert.notEqual(first.workspaceDigest, second.workspaceDigest)
 })
 
-test('records no fingerprint outside a work tree', async () => {
-  const plain = await mkdtemp(join(tmpdir(), 'typesafe-nodigest-'))
+test('the fingerprint covers untracked contents, not only their names', async () => {
+  const repo = await repoFixture()
+  await writeFile(join(repo, 'src', 'real.ts'), 'export const a = 2\n')
+  await writeFile(join(repo, 'notes.txt'), 'first\n')
+  const first = await verifyTaskResult(claim(), { workspaceRoot: repo, verifyComplete: false })
+
+  // Same path, same size class, different bytes. A stash tree covers tracked
+  // files only, and `status` carries untracked names without their contents, so
+  // a name-only fingerprint would call these identical — and a stale pass would
+  // be indistinguishable from a fresh one for any untracked file.
+  await writeFile(join(repo, 'notes.txt'), 'second\n')
+  const second = await verifyTaskResult(claim(), { workspaceRoot: repo, verifyComplete: false })
+
+  assert.notEqual(first.workspaceDigest, second.workspaceDigest)
+})
+
+test('reports unverified when the change set cannot be collected', async () => {
+  // A workspace git cannot answer for. The old behaviour skipped the change
+  // checks here and could still return ready, which means `ready` was
+  // obtainable in a tree where nothing had been verified.
+  const plain = await mkdtemp(join(tmpdir(), 'typesafe-unverified-'))
   await writeFile(join(plain, 'real.ts'), 'export {}\n')
+
   const report = await verifyTaskResult(claim({ changedFiles: ['real.ts'] }), { workspaceRoot: plain })
-  assert.equal(report.workspaceDigest, undefined)
+  assert.equal(report.ready, false)
+  assert.equal(report.issues[0]?.code, 'UNVERIFIED')
+  assert.match(report.issues[0]?.message ?? '', /change set/)
+  assert.match(report.issues[0]?.message ?? '', /fingerprint/)
 })
 
 test('the fingerprint is stable while the tree is', async () => {

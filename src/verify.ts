@@ -167,12 +167,16 @@ export async function verifyTaskResult(rawResult: string, options: VerifyOptions
     ...options.commandTimeoutMs === undefined ? {} : { timeoutMs: options.commandTimeoutMs },
   }
 
-  // Resolved once, before the per-file loop: one git run answers for every
-  // claim, and `undefined` means the question is unanswerable here — not that
-  // nothing changed.
-  const changeSet: ChangeSet | undefined = options.verifyChanges === false
-    ? undefined
-    : await changedFiles(root, result.data.changedFiles, gitOptions)
+  // Collection failures are named, never skipped. `verifyChanges` defaults to
+  // requiring these answers, and a check that quietly does not run is how a
+  // gate reports success for having verified nothing — the exact failure this
+  // plugin exists to catch. A missing answer is `unverified`, not `pass`.
+  const requireChanges = options.verifyChanges !== false
+  const uncollected: string[] = []
+  const changeSet: ChangeSet | undefined = requireChanges
+    ? await changedFiles(root, result.data.changedFiles, gitOptions)
+    : undefined
+  if (requireChanges && changeSet === undefined) uncollected.push('the workspace change set')
   // Symlinks are followed, so containment is judged on the real path. Without
   // this, a symlink inside the workspace pointing outside it passes both the
   // lexical workspace test and the existence test.
@@ -232,7 +236,9 @@ export async function verifyTaskResult(rawResult: string, options: VerifyOptions
   // exactly the shape a self-reported claim is most likely to take.
   if (options.verifyComplete !== false && changeSet !== undefined) {
     const whole = await worktreeChanges(root, gitOptions)
-    if (whole !== undefined) {
+    if (whole === undefined) {
+      uncollected.push('the full change set')
+    } else {
       const declared = new Set<string>()
       for (const claimed of result.data.changedFiles) {
         const normalized = normalizeClaim(claimed)
@@ -257,6 +263,15 @@ export async function verifyTaskResult(rawResult: string, options: VerifyOptions
   }
 
   const digest = await workspaceDigest(root, gitOptions)
+  if (requireChanges && digest === undefined) uncollected.push('the workspace fingerprint')
+
+  if (uncollected.length > 0) {
+    issues.push({
+      code: 'UNVERIFIED',
+      message: `Could not determine ${uncollected.join(' or ')} — not a git work tree, no commits yet, or git unavailable — so this claim is unverified. Set verifyChanges: false to accept file-existence checks alone.`,
+    })
+  }
+
   return {
     ready: result.data.status === 'done' && issues.length === 0,
     result: result.data,

@@ -101,11 +101,24 @@ test('can be told to skip the change check', async () => {
   assert.deepEqual(report.issues, [])
 })
 
-test('skips the change check outside a work tree rather than failing it', async () => {
+test('reports unverified outside a work tree rather than passing', async () => {
   const plain = await mkdtemp(join(tmpdir(), 'typesafe-plain-'))
   await writeFile(join(plain, 'committed.ts'), 'export {}\n')
-  const report = await verifyTaskResult(claim(), { workspaceRoot: plain })
 
+  // This used to skip the change checks and return ready, so `ready` could be
+  // earned in a workspace where nothing had been checked. A missing answer is
+  // now `unverified`, not `pass` — the plugin's whole job is to never report
+  // success for having verified nothing.
+  const report = await verifyTaskResult(claim(), { workspaceRoot: plain })
+  assert.equal(report.ready, false)
+  assert.equal(report.issues[0]?.code, 'UNVERIFIED')
+  assert.match(report.issues[0]?.message ?? '', /change set/)
+})
+
+test('accepts the explicit waiver when change verification is not required', async () => {
+  const plain = await mkdtemp(join(tmpdir(), 'typesafe-plain-'))
+  await writeFile(join(plain, 'committed.ts'), 'export {}\n')
+  const report = await verifyTaskResult(claim(), { workspaceRoot: plain, verifyChanges: false })
   assert.deepEqual(report.issues, [])
   assert.equal(report.ready, true)
 })
