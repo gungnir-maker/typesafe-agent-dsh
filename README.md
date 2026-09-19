@@ -124,12 +124,38 @@ A truthful claim, with every deterministic check green, can still be refused by 
 }
 ```
 
-That is the gate working, not failing: the suite passed and the changed files were real, but the claim scored just under the bar. Treat the threshold as a dial rather than a constant — `0.8` is deliberately strict, and a team that sees honest work refused should lower it (or keep `0.8` and reserve `status: "needs_review"` for uncertain work). Tests remain the hard proof; the semantic score is a confidence gate on top.
+That is the gate working, not failing: the suite passed and the changed files were real, but the claim scored just under the bar. Treat the threshold as a dial rather than a constant — the documented `0.8` is deliberately strict and, measured, refuses true work. [Calibrating the threshold](#calibrating-the-threshold) has the numbers. Tests remain the hard proof; the semantic score is a confidence gate on top.
 
 Two failure modes worth knowing:
 
 - `typesafe` configured but no key resolving fails **every** otherwise-passing task with `TYPESAFE_UNAVAILABLE`, rather than skipping the check. Configure the gate only once a key is available.
 - `verificationCommands` are package configuration, never model input, and the agent cannot ask for a command the config does not list — an unclaimed command is reported as `TEST_NOT_DECLARED`.
+
+## Calibrating the threshold
+
+The threshold is the one setting you have to tune, and the score it compares against is not a constant. It measures how well the **evidence** supports the **claim** — not how good the claim is.
+
+Measured on one deployment (DeepSeek Harness, `jev-latest`), across completions that all had a green suite:
+
+| Claim | Evidence | Score |
+|---|---|---|
+| Key resolution, credential store | `npm test` 9/9 | 0.79 |
+| Prompt instruction, self-applying gate | `npm test` 14/14 | 0.77 |
+| A new README section | `npm test` 18/18 | 0.61–0.70 |
+| A one-line README addition | `npm test` 18/18 | 0.70 |
+| Any claim while no command is configured | *none* | 0.48 |
+
+Three things follow.
+
+- The honest band sits around **0.6–0.8**, so the documented default of `0.8` refuses true work. **0.6 is a better starting point**, and it still refuses a claim carrying no evidence at all.
+- The same task scored 0.61 and 0.70 on two runs, so a threshold *inside* the band is fragile. Leave margin.
+- Documentation changes score near the bottom on purpose. A passing suite says nothing about whether README prose is accurate, so the gate is noticing an evidence/claim mismatch rather than judging quality. Expect doc-heavy work to sit low, and configure `verificationCommands` that actually bear on the claim.
+
+These numbers are one model's judgement on one repository, not a benchmark. Re-measure on your own work rather than trusting them.
+
+## Requirements
+
+Node `^22.19.0 || >=24.0.0` — any 22.x from 22.19.0 upward, or 24.0.0 and later. That range is declared in `engines` in `package.json`, and the package is ESM only, so it loads through `import` rather than `require`.
 
 ## Commands
 
