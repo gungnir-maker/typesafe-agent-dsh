@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { defaultSemanticChecks, evaluateWithTypeSafe } from '../src/typesafe.js'
 import type { VerificationReport } from '../src/contracts.js'
@@ -45,4 +46,21 @@ test('applies that default to a check naming no threshold of its own', async () 
   // 0.65 sits inside the measured honest band; under the old 0.8 default this
   // same claim was refused.
   assert.deepEqual(checks, [{ id: 'complete', score: 0.65, threshold: 0.6, passed: true }])
+})
+
+test('the README config example states the shipped default', () => {
+  // The documented value and the shipped one drifted apart once already, and
+  // nothing caught it until a reader did — twice. A review cannot be the only
+  // thing standing between a user and a default the README contradicts, so the
+  // example is parsed and compared here.
+  //
+  // Matched anchored and unquoted, which deliberately reaches the YAML config
+  // block and not the JSON sample above it: that sample is a real historical
+  // report, labelled as such, and its 0.8 is meant to stay.
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8')
+  const stated = [...readme.matchAll(/^[ \t]*threshold:[ \t]*([0-9.]+)[ \t]*$/gm)].map(match => Number(match[1]))
+  assert.ok(stated.length > 0, 'the README must show a threshold in its config example')
+  for (const value of stated) {
+    assert.equal(value, defaultSemanticChecks[0]?.threshold, 'the README threshold must match the shipped default')
+  }
 })

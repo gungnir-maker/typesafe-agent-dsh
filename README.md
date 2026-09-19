@@ -128,7 +128,9 @@ Example completion JSON:
 
 ## What a report looks like
 
-A truthful claim, with every deterministic check green, can still be refused by the semantic gate. `ready` is the conjunction of all of them:
+A truthful claim, with every deterministic check green, can still be refused by the semantic gate. `ready` is the conjunction of all of them.
+
+The report below is real, and it is labelled because its numbers are historical: it comes from a run against `0.8`, the threshold this package used to ship, and it is the reason it no longer does. Read it as an illustration of the *shape* of a refusal, not of the current bar — the default is now `0.6`.
 
 ```json
 {
@@ -143,7 +145,7 @@ A truthful claim, with every deterministic check green, can still be refused by 
 }
 ```
 
-That is the gate working, not failing: the suite passed and the changed files were real, but the claim scored just under the bar. That report is real, from a run against `0.8` — the threshold this package used to ship, and the reason it no longer does. The default is now `0.6`, in `src/typesafe.ts` as well as below; [Calibrating the threshold](#calibrating-the-threshold) has the numbers. Tests remain the hard proof; the semantic score is a confidence gate on top.
+That is the gate working, not failing: the suite passed and the changed files were real, but the claim scored just under the bar. [Calibrating the threshold](#calibrating-the-threshold) has the current numbers and where the default is set. Tests remain the hard proof; the semantic score is a confidence gate on top.
 
 Two failure modes worth knowing:
 
