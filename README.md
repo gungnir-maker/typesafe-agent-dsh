@@ -72,9 +72,12 @@ Set the plugin row in your DSH profile patch. `workspaceRoot` must point to the 
         verificationCommands: [npm test]
         commandTimeoutMs: 300000
         verifyChanges: true
+        verifyComplete: true
 ```
 
-Adjust `allowedPathPrefixes` to your repository layout. Change checks compare against `HEAD`, so unrelated uncommitted files are included. Use a clean starting tree. `verifyChanges: false` explicitly waives change verification.
+Adjust `allowedPathPrefixes` to your repository layout. Change checks compare against `HEAD`, so unrelated uncommitted files are included. Use a clean starting tree.
+
+Two independent waivers, and they are not interchangeable: `verifyChanges: false` drops change verification entirely — claimed files are then only checked for existence — while `verifyComplete: false` keeps those checks and waives only the requirement that the claim account for *every* changed path. Waiving either removes the corresponding failures from `ready`, so prefer keeping both on and starting from a clean tree.
 
 ### 3. Add TypeSafe AI · optional
 
