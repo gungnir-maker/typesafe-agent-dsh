@@ -1,138 +1,121 @@
-# TypeSafe Agent for DeepSeek Harness
+<div align="center">
 
-`typesafe-agent-dsh` stops an agent from declaring success with prose alone. It validates a typed completion result, checks claimed files stay inside the workspace **and were actually touched**, independently reruns trusted verification commands under a time bound, and can ask TypeSafe AI whether the completion claim is semantically supported by its evidence.
+# TypeSafe Agent
 
-## What it proves
+### Completion checks for DeepSeek Harness
 
-```text
-agent claim → typed JSON validation → path policy → changed-file check → bounded command rerun → TypeSafe semantic gate → ready / needs review
+Check the files. Rerun the tests. Evaluate the evidence.
+
+[![CI](https://github.com/gungnir-maker/typesafe-agent-dsh/actions/workflows/ci.yml/badge.svg)](https://github.com/gungnir-maker/typesafe-agent-dsh/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-64748b)](LICENSE)
+
+[Get started](#get-started) · [How it works](#how-it-works) · [Current limits](#current-limits) · [Changelog](CHANGELOG.md)
+
+</div>
+
+---
+
+`typesafe-agent-dsh` adds a verification tool to [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It checks completion claims against workspace changes and reruns configured commands. An optional [TypeSafe AI](https://docs.typesafe.ai/introduction/quickstart) check evaluates whether the supplied evidence supports the claim.
+
+**Current status: advisory verifier.** The agent is prompted to request verification; completion is not yet enforced by the runtime. A passing report means the configured checks passed for the inspected state, not that every requirement is satisfied.
+
+## How it works
+
+```mermaid
+flowchart TD
+    A[Agent submits completion claim] --> B[Validate claim and workspace changes]
+    B --> C[Rerun configured commands]
+    C --> D{Local checks pass?}
+    D -->|No| E[Return issues — ready: false]
+    D -->|Yes| F{TypeSafe AI enabled?}
+    F -->|No| G[Return report — ready: true]
+    F -->|Yes| H[Evaluate supplied task and evidence]
+    H --> I{Semantic checks pass?}
+    I -->|No or unavailable| E
+    I -->|Yes| G
 ```
 
-`ready: true` means all configured checks passed. Tests remain the hard proof. TypeSafe adds a semantic confidence gate; it does not replace deterministic verification.
+The local checks inspect the workspace and execute commands. TypeSafe AI supplies a separate semantic score. Commands and thresholds come from plugin configuration.
 
-Each stage answers a narrower question than it looks like, and knowing which is which is the difference between trusting this and over-trusting it:
+| Check | What it verifies |
+| :--- | :--- |
+| Completion contract | Required fields, reported blockers, and nonempty evidence |
+| File boundaries | Normalized paths and resolved symlinks stay within the configured scope |
+| Change set | Claimed changes match Git, including deletions; omitted changes are reported |
+| Command execution | Configured commands are rerun with time limits and cancellation |
+| Semantic evaluation · optional | TypeSafe scores the supplied evidence against configured questions |
 
-| Check | The question it answers | What it does *not* answer |
-|---|---|---|
-| Typed validation | Is the completion a well-formed claim? | whether it is true |
-| Path policy | Is every claimed path a normalized relative path, inside the workspace, allowed prefixes, and (via `realpath`) inside them for real? | whether it is honest |
-| Existence | Does each claimed file exist, unless git reports it deleted? | whether you touched it |
-| Changed-file check | Does each claimed file differ from `HEAD`? | that the change is *yours* rather than pre-existing |
-| Completeness | Does the claim account for **every** path the tree reports as changed? | whether an undeclared change was yours or already there |
-| Collection | Did git actually answer? A missing answer is `UNVERIFIED`, never a pass | — |
-| Command rerun | Does the configured command exit zero, now? | that it covers the task |
-| Blockers / evidence | Does a `done` claim report no blockers, and carry at least one file or executed command? | whether the evidence is *sufficient*, only that it is not empty |
-| Semantic gate | Does the evidence support the claim? | correctness |
+Reports include issues, command results, semantic scores, and a workspace digest when available. Required Git collection failures produce `UNVERIFIED`; they do not silently pass.
 
-The change checks fail **closed**. If git cannot answer — not a work tree, no commits yet, git unavailable, or more untracked files than can be hashed — the report says `UNVERIFIED` rather than quietly skipping. An earlier revision skipped instead, on the reasoning that a false refusal is worse than no check; that was backwards, because it let `ready` be earned in a tree where nothing had been checked. `verifyChanges: false` is the explicit waiver.
+## Get started
 
-## What it still does not establish
+Requires a working DeepSeek Harness installation, Git, and Node **22.19+ on the 22.x line, or 24+**. The package uses ESM. Use a project with an existing Git commit and a clean starting tree.
 
-Read this before treating a `ready: true` as proof.
-
-- **A verdict does not carry forward.** Each report names the workspace state it was taken against (`workspaceDigest`), so a later reader can tell whether the tree moved. Nothing yet *forces* re-verification after further edits — that needs the lifecycle hook below.
-- **Run it on a clean tree.** Both the changed-file check and the completeness check compare against `HEAD`, so unrelated uncommitted work reads as an undeclared change. Set `verifyComplete: false` if your workspace is routinely dirty.
-- **A passing command is not coverage.** Nothing here establishes that the configured command exercises the task at hand.
-
-## The two gaps that need the harness, not this plugin
-
-Both are properties of *how* the tool is invoked, so neither can be closed from inside it. Both are also now known to be reachable, because the Harness exposes the events they need:
-
-- **The task being judged is still the agent's own description of it.** Binding verification to the requirement the user actually stated needs that requirement captured before execution from `agent/inbox/claimed` (or `session/event` filtered on `source.kind`, which separates real user input from plugin injections), with the agent handed only a task ID. Not implemented yet.
-- **Invocation is requested, not enforced.** The prompt section asks; nothing compels. The Harness does expose `agent/turn-stopping` — a serial, awaited event fired as the turn closes — so an enforcing hook is buildable and testable. Until one exists, treat this as an **advisory verifier**.
-
-The milestone this is working toward: *a task cannot pass by changing its requirements, omitting changed files, or reusing stale evidence.* Completeness and the fingerprint are in; requirement binding is not.
-
-## Install
-
-Build this package first:
+### 1. Build and install
 
 ```bash
-npm install
+git clone https://github.com/gungnir-maker/typesafe-agent-dsh.git
+cd typesafe-agent-dsh
+npm ci
 npm run build
+dsh plugin --profile web add "file:$(pwd)"
 ```
 
-Add it to a DeepSeek Harness profile:
+### 2. Configure the project to verify
 
-```bash
-dsh plugin --profile web add file:/absolute/path/to/typesafe-agent-dsh
-```
-
-Configure trusted verification commands in the profile patch. Commands are package configuration, not model input:
+Set the plugin row in your DSH profile patch. `workspaceRoot` must point to the project the agent is working on. Choose commands that actually test that project's requirements.
 
 ```yaml
 - insert:
     - id: typesafe-agent-dsh
       name: typesafe-agent-dsh
       config:
-        workspaceRoot: /absolute/path/to/project
+        workspaceRoot: /absolute/path/to/your-project
         allowedPathPrefixes: [src, test]
         verificationCommands: [npm test]
-        # Wall-clock bound for one command; it is killed on expiry and reported
-        # as TEST_TIMED_OUT. Defaults to 300000 (five minutes).
         commandTimeoutMs: 300000
-        # Require each claimed file to differ from HEAD, inside a git work tree.
-        # Defaults to true; set false to check existence only.
         verifyChanges: true
-        typesafe:
-          apiKeyEnv: TYPESAFE_API_KEY
-          model: jev-latest
-          checks:
-            - id: completion_is_supported
-              instructions: Based only on the task and evidence, is the completion claim supported well enough to hand off?
-              threshold: 0.6
 ```
 
-The key is never kept in this repository. It resolves once per call, in this order:
+Adjust `allowedPathPrefixes` to your repository layout. Change checks compare against `HEAD`, so unrelated uncommitted files are included. Use a clean starting tree. `verifyChanges: false` explicitly waives change verification.
 
-1. **The Harness credential service** (`ctx.credentials.resolve`) — the writable store layered over `.env` files and the inherited environment.
-2. **`process.env`** — the fallback for a composition that mounts no credential provider, and for loading this package outside the Harness.
+### 3. Add TypeSafe AI · optional
 
-`typesafe.apiKeyEnv` names the reference; it defaults to `TYPESAFE_API_KEY`.
+Add this block inside the plugin's `config`:
 
-Configure `typesafe` only when a key is actually available: a configured gate with an unresolved reference forces `ready: false` on every otherwise-passing task rather than skipping the check.
+```yaml
+typesafe:
+  apiKeyEnv: TYPESAFE_API_KEY
+  model: jev-latest
+  checks:
+    - id: completion_is_supported
+      instructions: Based only on the task and evidence, is the completion claim supported well enough to hand off?
+      threshold: 0.6
+```
 
-### Entering the key
-
-The plugin ships a browser half, so the key is entered on the **Models** settings page instead of a terminal. It registers a TypeSafe card in that page's footer extension area (`settings.models.footer`), beside the provider keys and styled like them, with a configured/missing dot.
-
-The card writes through the existing `ctx.remote.credentials` namespace — the same surface the provider key fields use — so a key stored there reaches the very next `typesafe_verify_task` call with no restart. The literal crosses the wire in one direction only: the card learns whether a key is configured, never its value.
-
-Without a browser, either export the key before launching:
+Enter your TypeSafe key in the **TypeSafe card on DSH's Models settings page**, or set it before launching:
 
 ```bash
 export TYPESAFE_API_KEY="your_typesafe_key"
-export DEEPSEEK_API_KEY="your_deepseek_key"
 dsh web
 ```
 
-or put it in `$DSH_HOME/.env`, which does not travel with a repository.
+Your coding model remains configured in DSH. The TypeSafe key is separate from its provider key. A configured TypeSafe check fails verification if the key cannot be resolved or the service is unavailable.
 
-### Browser half layout
+> **Data sent to TypeSafe:** the supplied task, completion claim, and captured verification-command output. Review [SECURITY.md](SECURITY.md) before enabling it. Keep credentials outside this repository.
 
-```text
-client/index.js   shipped closure-factory bundle (window.__ModuleLoader__.load)
-cordis.patch.yml  bundle layer that mounts the Host plugin row
-```
+## Read the result
 
-`client/index.js` is the shipped artifact rather than compiled output: the Harness client-module loader consumes exactly this closure-factory form, and this package carries no client build step. React is a client baseline external; the slot service and the credentials Remote arrive through the injected context.
+Ask the agent to call `typesafe_verify_task` after its changes. The tool accepts a completion claim as `resultJson` and returns a JSON-encoded verification report.
 
-## Agent flow
+| Result | Interpretation |
+| :--- | :--- |
+| `ready: true` | All configured checks passed for the inspected state |
+| `ready: false` | Review `issues` and the associated evidence before proceeding |
+| `workspaceDigest` | A fingerprint for detecting workspace changes; freshness is not yet enforced |
 
-1. Ask the DeepSeek Harness agent to make a focused change.
-2. The agent edits files and calls normal test tools.
-3. The agent calls `typesafe_verify_task` with a completion JSON object.
-4. This plugin reruns configured tests and returns a typed verification report.
-
-Step 3 is not left to goodwill. The plugin registers a prompt section telling the model to verify before reporting completion, and to pass a `ready: false` on with its issue codes rather than restating it in softer prose:
-
-> A task that changed files is not finished because the edits look right: it is finished when something other than you says so.
-
-Registering a tool is not the same as getting it called — a gate the model is never told about stays dormant until a human asks, which makes it a suggestion rather than a gate. The instruction is what closes that gap.
-
-Before enabling the gate, read [`SECURITY.md`](./SECURITY.md): the semantic check sends the captured output of your verification commands to a third party, and command output routinely contains more than you expect.
-
-Example completion JSON:
+<details>
+<summary>Example completion claim</summary>
 
 ```json
 {
@@ -146,59 +129,48 @@ Example completion JSON:
 }
 ```
 
-## What a report looks like
+An unclaimed required command produces `TEST_NOT_DECLARED`. A configured command exiting zero confirms execution success, not task coverage.
 
-A truthful claim, with every deterministic check green, can still be refused by the semantic gate. `ready` is the conjunction of all of them.
+</details>
 
-The report below is real, and it is labelled because its numbers are historical: it comes from a run against `0.8`, the threshold this package used to ship, and it is the reason it no longer does. Read it as an illustration of the *shape* of a refusal, not of the current bar — the default is now `0.6`.
+## Current limits
 
-```json
-{
-  "ready": false,
-  "tests": [{ "command": "npm test", "passed": true, "output": "…ok 9/9…" }],
-  "semanticChecks": [
-    { "id": "completion_is_supported", "score": 0.79, "threshold": 0.8, "passed": false }
-  ],
-  "issues": [
-    { "code": "SEMANTIC_CHECK_FAILED", "message": "TypeSafe check failed: completion_is_supported (0.79 < 0.8)." }
-  ]
-}
-```
+| Capability | Status |
+| :--- | :--- |
+| Detect omitted workspace changes | Implemented |
+| Fingerprint workspace contents | Implemented; later edits do not automatically trigger verification |
+| Bind evaluation to the original user request | Planned; the task text is currently supplied by the agent |
+| Enforce verification before a turn completes | Planned; invocation currently relies on prompt instructions |
+| Automated installed-plugin and credential-flow testing | Pending; existing DSH testing includes manual runs |
 
-That is the gate working, not failing: the suite passed and the changed files were real, but the claim scored just under the bar. [Calibrating the threshold](#calibrating-the-threshold) has the current numbers and where the default is set. Tests remain the hard proof; the semantic score is a confidence gate on top.
+Checks compare against `HEAD`, not a task-start snapshot. They cannot attribute pre-existing edits to a particular task. A passing test command does not establish coverage, and a semantic score does not establish correctness.
 
-Two failure modes worth knowing:
+The next milestone is to bind requirements and verdicts to a task, then enforce fresh verification at turn close. Codex and Claude adapters are future work.
 
-- `typesafe` configured but no key resolving fails **every** otherwise-passing task with `TYPESAFE_UNAVAILABLE`, rather than skipping the check. Configure the gate only once a key is available.
-- `verificationCommands` are package configuration, never model input, and the agent cannot ask for a command the config does not list — an unclaimed command is reported as `TEST_NOT_DECLARED`.
+## Calibration notes
 
-## Calibrating the threshold
+The default semantic threshold is **0.6**. It was lowered after manual runs rejected apparently valid completions at `0.8`. These observations do **not** establish a false-acceptance rate; labeled correct and incorrect cases are still needed.
 
-The threshold is the one setting you have to tune, and the score it compares against is not a constant. It measures how well the **evidence** supports the **claim** — not how good the claim is.
+<details>
+<summary>Historical observations · one repository, jev-latest</summary>
 
-Measured on one deployment (DeepSeek Harness, `jev-latest`), across completions that all had a green suite:
+These are recorded development observations, not a reproducible benchmark. Test counts refer to the suite at the time of each run.
 
-| Claim | Evidence | Score |
-|---|---|---|
-| Key resolution, credential store | `npm test` 9/9 | 0.79 |
-| Prompt instruction, self-applying gate | `npm test` 14/14 | 0.77 |
-| A new README section | `npm test` 18/18 | 0.61–0.70 |
-| A one-line README addition | `npm test` 18/18 | 0.70 |
-| Any claim while no command is configured | *none* | 0.48 |
+| Completion claim | Reported evidence | Observed score |
+| :--- | :--- | ---: |
+| Credential-store key resolution | 9/9 tests | 0.79 |
+| Completion prompt instruction | 14/14 tests | 0.77 |
+| New README section | 18/18 tests | 0.61–0.70 |
+| One-line README addition | 18/18 tests | 0.70 |
+| Claim without a configured command | No command evidence | 0.48 |
 
-Three things follow.
+Repeated scoring varied. Documentation changes also require different evidence from code changes: a passing code test suite does not verify prose. Tune thresholds against labeled examples from your own workflow.
 
-- The honest band sits around **0.6–0.8**, so the `0.8` this package originally shipped refused true work. **`0.6` is the default in `src/typesafe.ts`** — a user who enables `typesafe` without writing out `checks` gets it — and it still refuses a claim carrying no evidence at all.
-- The same task scored 0.61 and 0.70 on two runs, so a threshold *inside* the band is fragile. Leave margin.
-- Documentation changes score near the bottom on purpose. A passing suite says nothing about whether README prose is accurate, so the gate is noticing an evidence/claim mismatch rather than judging quality. Expect doc-heavy work to sit low, and configure `verificationCommands` that actually bear on the claim.
+The earlier README recorded a refusal at **0.79 against a 0.8 threshold**. That illustrates the previous configuration, not the current default.
 
-These numbers are one model's judgement on one repository, not a benchmark. Re-measure on your own work rather than trusting them.
+</details>
 
-## Requirements
-
-Node `^22.19.0 || >=24.0.0` — any 22.x from 22.19.0 upward, or 24.0.0 and later. That range is declared in `engines` in `package.json`, and the package is ESM only, so it loads through `import` rather than `require`.
-
-## Commands
+## Development
 
 ```bash
 npm run check
@@ -206,6 +178,18 @@ npm test
 npm run build
 ```
 
-## Scope of v0.1
+CI runs on Node 22 and 24. Unit and mock tests are distinct from live DSH integration testing.
 
-One DSH plugin, one completion contract, file-boundary checks, trusted command verification, and a Models-page card for the optional semantic gate's key. Codex and Claude adapters come after this workflow is stable.
+<details>
+<summary>Integration details</summary>
+
+- The Host registers `typesafe_verify_task` and a completion prompt section.
+- `client/index.js` is the shipped browser bundle. It mounts a card in `settings.models.footer` using DSH's credential Remote; no client build step is needed.
+- Credentials resolve through `ctx.credentials.resolve`. `process.env` is the fallback when no credential service is mounted. The browser receives credential status, not the stored value.
+- The tracked integration points for future enforcement are `agent/inbox/claimed`, `session/event`, and `agent/turn-stopping`. Their use for requirement binding and completion enforcement is not implemented here yet.
+
+</details>
+
+---
+
+[MIT license](LICENSE) · [Security and data handling](SECURITY.md) · [Changes](CHANGELOG.md) · [Report an issue](https://github.com/gungnir-maker/typesafe-agent-dsh/issues)
