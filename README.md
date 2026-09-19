@@ -85,6 +85,14 @@ cordis.patch.yml  bundle layer that mounts the Host plugin row
 3. The agent calls `typesafe_verify_task` with a completion JSON object.
 4. This plugin reruns configured tests and returns a typed verification report.
 
+Step 3 is not left to goodwill. The plugin registers a prompt section telling the model to verify before reporting completion, and to pass a `ready: false` on with its issue codes rather than restating it in softer prose:
+
+> A task that changed files is not finished because the edits look right: it is finished when something other than you says so.
+
+Registering a tool is not the same as getting it called — a gate the model is never told about stays dormant until a human asks, which makes it a suggestion rather than a gate. The instruction is what closes that gap.
+
+Before enabling the gate, read [`SECURITY.md`](./SECURITY.md): the semantic check sends the captured output of your verification commands to a third party, and command output routinely contains more than you expect.
+
 Example completion JSON:
 
 ```json
